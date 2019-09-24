@@ -51,9 +51,12 @@ type RoutesInfo []RouteInfo
 
 // Engine is the framework's instance, it contains the muxer, middleware and configuration settings.
 // Create an instance of Engine, by using New() or Default()
+//	Engine 是 gin 整个框架核心引擎. 所有组件, 都是由 Engine 驱动.
 type Engine struct {
+	// 关键: 路由组
 	RouterGroup
 
+	// 几个配置开关:
 	// Enables automatic redirection if the current route can't be matched but a
 	// handler for the path with (without) the trailing slash exists.
 	// For example if /foo/ is requested but a route only exists for /foo, the
@@ -105,6 +108,8 @@ type Engine struct {
 	allNoMethod      HandlersChain
 	noRoute          HandlersChain
 	noMethod         HandlersChain
+
+	// 关键: 临时对象池: 用于处理 context
 	pool             sync.Pool
 	trees            methodTrees
 }
@@ -121,6 +126,7 @@ var _ IRouter = &Engine{}
 // - UnescapePathValues:     true
 func New() *Engine {
 	debugPrintWARNINGNew()
+	// 初始化框架对象
 	engine := &Engine{
 		RouterGroup: RouterGroup{
 			Handlers: nil,
@@ -141,7 +147,9 @@ func New() *Engine {
 		secureJsonPrefix:       "while(1);",
 	}
 	engine.RouterGroup.engine = engine
+	// 关键代码: 初始化 pool
 	engine.pool.New = func() interface{} {
+		// 关键调用: 初始化上下文对象，可以点进去看看
 		return engine.allocateContext()
 	}
 	return engine
@@ -150,8 +158,11 @@ func New() *Engine {
 // Default returns an Engine instance with the Logger and Recovery middleware already attached.
 func Default() *Engine {
 	debugPrintWARNINGDefault()
+	// 创建框架对象
 	engine := New()
+	// 配置默认中间件
 	engine.Use(Logger(), Recovery())
+	// 返回框架对象
 	return engine
 }
 
@@ -287,11 +298,17 @@ func iterate(path, method string, routes RoutesInfo, root *node) RoutesInfo {
 // Run attaches the router to a http.Server and starts listening and serving HTTP requests.
 // It is a shortcut for http.ListenAndServe(addr, router)
 // Note: this method will block the calling goroutine indefinitely unless an error happens.
+// 启动框架, 处理 http 请求
 func (engine *Engine) Run(addr ...string) (err error) {
 	defer func() { debugPrintError(err) }()
 
+	// 获取 IP+Port
 	address := resolveAddress(addr)
 	debugPrint("Listening and serving HTTP on %s\n", address)
+
+	//	使用 标准库 http.ListenAndServe() 启动 web 监听服务, 处理HTTP请求.
+	// 	关键代码: 注意传入的 engine 对象
+	//	engine实现了 http.Handler{} 接口，所以可以传入
 	err = http.ListenAndServe(address, engine)
 	return
 }
@@ -343,6 +360,7 @@ func (engine *Engine) RunFd(fd int) (err error) {
 }
 
 // ServeHTTP conforms to the http.Handler interface.
+//	因为此方法，Engine实现 http.Handler{} 接口
 func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	c := engine.pool.Get().(*Context)
 	c.writermem.reset(w)
