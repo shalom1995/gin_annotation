@@ -39,11 +39,16 @@ func (ps Params) ByName(name string) (va string) {
 	return
 }
 
+//	TODO: 这里使用什么算法来让 提供高效的URI对应的处理函数数组的查找？
+// 方法树结构体
 type methodTree struct {
+	// HTTP Method
 	method string
+	// 当前HTTP Method的路由节点
 	root   *node
 }
 
+// 方法树集合
 type methodTrees []methodTree
 
 func (trees methodTrees) get(method string) *node {
@@ -84,10 +89,15 @@ const (
 	catchAll
 )
 
+// 很关键
+// 路由树节点
 type node struct {
+	// 路由path
 	path      string
 	indices   string
+	// 子路由节点
 	children  []*node
+	// 所有的handle 构成一个链
 	handlers  HandlersChain
 	priority  uint32
 	nType     nodeType

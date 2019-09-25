@@ -38,10 +38,14 @@ type IRoutes interface {
 
 // RouterGroup is used internally to configure router, a RouterGroup is associated with
 // a prefix and an array of handlers (middleware).
+//	配置路由的对象，作用：
+//	- 将路由与相关的处理函数关联起来
+//	- 提供了路由组的功能，这个是用关联前缀的方式实现的
+//	- 提供了中间件自由组合的功能：1. 总的中间件 2. 路由组的中间件 3.处理函数的中间件
 type RouterGroup struct {
-	Handlers HandlersChain
+	Handlers HandlersChain	// 数组: 路由集
 	basePath string
-	engine   *Engine
+	engine   *Engine	// gin 引擎
 	root     bool
 }
 
@@ -71,7 +75,11 @@ func (group *RouterGroup) BasePath() string {
 
 func (group *RouterGroup) handle(httpMethod, relativePath string, handlers HandlersChain) IRoutes {
 	absolutePath := group.calculateAbsolutePath(relativePath)
+
+	// 把中间件的handle和该路由的handle合并
 	handlers = group.combineHandlers(handlers)
+
+	// 添加路由:
 	group.engine.addRoute(httpMethod, absolutePath, handlers)
 	return group.returnObj()
 }
@@ -93,6 +101,10 @@ func (group *RouterGroup) Handle(httpMethod, relativePath string, handlers ...Ha
 	return group.handle(httpMethod, relativePath, handlers)
 }
 
+//	gin.POST() 定义 POST 请求路由
+//	gin.GET() 定义 GET 请求路由
+//	注意: group *RouterGroup
+//	注意: 返回值类型: IRoutes
 // POST is a shortcut for router.Handle("POST", path, handle).
 func (group *RouterGroup) POST(relativePath string, handlers ...HandlerFunc) IRoutes {
 	return group.handle("POST", relativePath, handlers)

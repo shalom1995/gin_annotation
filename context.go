@@ -42,17 +42,28 @@ const abortIndex int8 = math.MaxInt8 / 2
 // manage the flow, validate the JSON of a request and render a JSON response for example.
 type Context struct {
 	writermem responseWriter
+
+	// HTTP 请求
 	Request   *http.Request
+
+	// HTTP 响应
+	// 这里传递是一个接口，可以使用各个处理函数，更加灵活，降低耦合
 	Writer    ResponseWriter
 
+	// 路径(URL)当中的参数，本质上是一个结构体数组
+	//	在数量少的情况下用数组查找值，比用字典查找值要快
 	Params   Params
+	// 关键: 数组  里面包含方法集合
 	handlers HandlersChain
+	// 目前在运行着第几个处理函数
 	index    int8
 	fullPath string
 
+	//	核心引擎对象
 	engine *Engine
 
 	// Keys is a key/value pair exclusively for the context of each request.
+	// 各个中间件添加的key value
 	Keys map[string]interface{}
 
 	// Errors is a list of errors attached to all the handlers/middlewares who used this context.
@@ -73,10 +84,12 @@ type Context struct {
 /********** CONTEXT CREATION ********/
 /************************************/
 
+//	context的重置函数
 func (c *Context) reset() {
 	c.Writer = &c.writermem
 	c.Params = c.Params[0:0]
 	c.handlers = nil
+	//	注意：这里被重置为-1
 	c.index = -1
 	c.fullPath = ""
 	c.Keys = nil
@@ -141,9 +154,17 @@ func (c *Context) FullPath() string {
 // Next should be used only inside middleware.
 // It executes the pending handlers in the chain inside the calling handler.
 // See example in GitHub.
+//	Next() 只允许在 中间件内部使用, 不可滥用.
+//	TODO: 这里是如何实现灵活的中间件的？
 func (c *Context) Next() {
+	// 注意: 逐个遍历, 执行 handler()
+	//	对context进行reset的时候，index就被赋值为-1
 	c.index++
 	for c.index < int8(len(c.handlers)) {
+		//	c.handlers 是个数组 方法集合.
+		// 遍历执行所有handle(其实就是中间件+路由handle)
+		// 其次感觉这里设计的很一般 遍历？多无聊，这里多么适合「责任链模式」TODO：责任链模式是什么？
+		// 之后给大家带来关于这个handle执行的「责任链模式」的设计
 		c.handlers[c.index](c)
 		c.index++
 	}
@@ -552,6 +573,7 @@ func (c *Context) SaveUploadedFile(file *multipart.FileHeader, dst string) error
 // It parses the request's body as JSON if Content-Type == "application/json" using JSON or XML as a JSON input.
 // It decodes the json payload into the struct specified as a pointer.
 // It writes a 400 error and sets Content-Type header "text/plain" in the response if input is not valid.
+// 自动更加请求头,选择不同的绑定器对象进行处理
 func (c *Context) Bind(obj interface{}) error {
 	b := binding.Default(c.Request.Method, c.ContentType())
 	return c.MustBindWith(obj, b)
@@ -597,6 +619,7 @@ func (c *Context) BindUri(obj interface{}) error {
 // See the binding package.
 func (c *Context) MustBindWith(obj interface{}, b binding.Binding) error {
 	if err := c.ShouldBindWith(obj, b); err != nil {
+		// 绑定失败后，框架会进行统一的处理
 		c.AbortWithError(http.StatusBadRequest, err).SetType(ErrorTypeBind) // nolint: errcheck
 		return err
 	}
@@ -652,6 +675,8 @@ func (c *Context) ShouldBindUri(obj interface{}) error {
 
 // ShouldBindWith binds the passed struct pointer using the specified binding engine.
 // See the binding package.
+// 用户可以自行选择绑定器，自行对出错处理。自行选择绑定器，这也意味着用户可以自己实现绑定器。
+// 例如：嫌弃默认的json处理是用官方的json处理包，嫌弃它慢，可以自己实现Binding接口
 func (c *Context) ShouldBindWith(obj interface{}, b binding.Binding) error {
 	return b.Bind(c.Request, obj)
 }
@@ -800,6 +825,7 @@ func (c *Context) Cookie(name string) (string, error) {
 }
 
 // Render writes the response headers and calls render.Render to render data.
+//	核心的一致的处理
 func (c *Context) Render(code int, r render.Render) {
 	c.Status(code)
 

@@ -128,9 +128,13 @@ func New() *Engine {
 	debugPrintWARNINGNew()
 	// 初始化框架对象
 	engine := &Engine{
+		// 路由组
+		// 给框架实例绑定上一个路由组
 		RouterGroup: RouterGroup{
+			// engine.Use 注册的中间方法到这里
 			Handlers: nil,
 			basePath: "/",
+			// 是否是路由根节点
 			root:     true,
 		},
 		FuncMap:                template.FuncMap{},
@@ -142,14 +146,19 @@ func New() *Engine {
 		UseRawPath:             false,
 		UnescapePathValues:     true,
 		MaxMultipartMemory:     defaultMultipartMemory,
+		// 路由树
+		// 我们的路由最终注册到了这里
 		trees:                  make(methodTrees, 0, 9),
 		delims:                 render.Delims{Left: "{{", Right: "}}"},
 		secureJsonPrefix:       "while(1);",
 	}
+	//	TODO: 这里为何又在RouterGroup里添加engine，有何作用？
 	engine.RouterGroup.engine = engine
 	// 关键代码: 初始化 pool
+	//	绑定从实例池获取上下文的闭包方法
 	engine.pool.New = func() interface{} {
 		// 关键调用: 初始化上下文对象，可以点进去看看
+		// 获取一个Context实例
 		return engine.allocateContext()
 	}
 	return engine
@@ -157,6 +166,8 @@ func New() *Engine {
 
 // Default returns an Engine instance with the Logger and Recovery middleware already attached.
 func Default() *Engine {
+	// 调试模式日志输出
+	// 🌟很不错的设计
 	debugPrintWARNINGDefault()
 	// 创建框架对象
 	engine := New()
@@ -239,6 +250,7 @@ func (engine *Engine) NoMethod(handlers ...HandlerFunc) {
 // Use attaches a global middleware to the router. ie. the middleware attached though Use() will be
 // included in the handlers chain for every single request. Even 404, 405, static files...
 // For example, this is the right place for a logger or error management middleware.
+//	具体的注册中间件的方法
 func (engine *Engine) Use(middleware ...HandlerFunc) IRoutes {
 	engine.RouterGroup.Use(middleware...)
 	engine.rebuild404Handlers()
@@ -260,12 +272,17 @@ func (engine *Engine) addRoute(method, path string, handlers HandlersChain) {
 	assert1(len(handlers) > 0, "there must be at least one handler")
 
 	debugPrintRoute(method, path, handlers)
+	//	检查有没有对应method集合的路由
 	root := engine.trees.get(method)
 	if root == nil {
+		// 没有 则创建一个新的路由节点
 		root = new(node)
 		root.fullPath = "/"
+
+		// 添加该method的路由tree到当前的路由到路由树里
 		engine.trees = append(engine.trees, methodTree{method: method, root: root})
 	}
+	// 添加路由
 	root.addRoute(path, handlers)
 }
 
@@ -308,7 +325,7 @@ func (engine *Engine) Run(addr ...string) (err error) {
 
 	//	使用 标准库 http.ListenAndServe() 启动 web 监听服务, 处理HTTP请求.
 	// 	关键代码: 注意传入的 engine 对象
-	//	engine实现了 http.Handler{} 接口，所以可以传入
+	//	engine实现了 http.Handler{} 接口，所以可以作为参数传入
 	err = http.ListenAndServe(address, engine)
 	return
 }
@@ -360,15 +377,23 @@ func (engine *Engine) RunFd(fd int) (err error) {
 }
 
 // ServeHTTP conforms to the http.Handler interface.
-//	因为此方法，Engine实现 http.Handler{} 接口
+//	因为此方法，Engine实现 http.Handler{} 接口  是gin框架中的核心实现，也可以算是gin框架的入口
 func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// 从 临时对象池 pool 获取 context 上下文对象
+	// 从实例池获取 性能高 TODO: 这个实例池是怎么实现的？
 	c := engine.pool.Get().(*Context)
+
+	// 重置上下文对象，因为从对象池取出来的数据，有脏数据，故要重置。
+	// 重置上下文实例的http.ResponseWriter
 	c.writermem.reset(w)
+	// 重置上下文实例*http.Request
 	c.Request = req
 	c.reset()
 
+	// 实际处理HTTP请求的地方，传递当前的上下文
 	engine.handleHTTPRequest(c)
 
+	// 使用完 context 对象, 归还给 pool
 	engine.pool.Put(c)
 }
 
@@ -394,18 +419,27 @@ func (engine *Engine) handleHTTPRequest(c *Context) {
 	rPath = cleanPath(rPath)
 
 	// Find root of the tree for the given HTTP method
+	// tree是个数组，里面保存着 对应请求方式的URI 与 处理函数的树。
+	// 之所以用数组是因为，在个数少的时候，数组查询比字典要快
 	t := engine.trees
 	for i, tl := 0, len(t); i < tl; i++ {
 		if t[i].method != httpMethod {
 			continue
 		}
+		//	找到节点
 		root := t[i].root
 		// Find route in tree
+		// 从tree中找到路由对应的处理函数们(一个路由对应多个函数的原因是：有许多中间件函数)
 		value := root.getValue(rPath, c.Params, unescape)
+
+		// 调用处理函数们
 		if value.handlers != nil {
+			// 把找到的handles赋值给上下文
 			c.handlers = value.handlers
+			// 把找到的入参赋值给上下文
 			c.Params = value.params
 			c.fullPath = value.fullPath
+			//	关键调用 执行handle
 			c.Next()
 			c.writermem.WriteHeaderNow()
 			return
@@ -422,6 +456,7 @@ func (engine *Engine) handleHTTPRequest(c *Context) {
 		break
 	}
 
+	// 出错返回
 	if engine.HandleMethodNotAllowed {
 		for _, tree := range engine.trees {
 			if tree.method == httpMethod {
