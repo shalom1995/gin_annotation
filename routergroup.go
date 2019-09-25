@@ -22,6 +22,7 @@ type IRoutes interface {
 	Use(...HandlerFunc) IRoutes
 
 	Handle(string, string, ...HandlerFunc) IRoutes
+	// 匹配所有 HTTP Method
 	Any(string, ...HandlerFunc) IRoutes
 	GET(string, ...HandlerFunc) IRoutes
 	POST(string, ...HandlerFunc) IRoutes
@@ -44,6 +45,7 @@ type IRoutes interface {
 //	- 提供了中间件自由组合的功能：1. 总的中间件 2. 路由组的中间件 3.处理函数的中间件
 type RouterGroup struct {
 	Handlers HandlersChain	// 数组: 路由集
+	//	前缀路径，RouterGroup会将所有的子路径都加上这个前缀，再放进路由树中。有了这个前缀路径，就可以实现 URL 分组功能。
 	basePath string
 	engine   *Engine	// gin 引擎
 	root     bool
@@ -74,12 +76,13 @@ func (group *RouterGroup) BasePath() string {
 }
 
 func (group *RouterGroup) handle(httpMethod, relativePath string, handlers HandlersChain) IRoutes {
+	// 合并URL (RouterGroup有URL前缀)
 	absolutePath := group.calculateAbsolutePath(relativePath)
 
 	// 把中间件的handle和该路由的handle合并
 	handlers = group.combineHandlers(handlers)
 
-	// 添加路由:
+	// 添加路由(注册路由树):
 	group.engine.addRoute(httpMethod, absolutePath, handlers)
 	return group.returnObj()
 }
@@ -157,6 +160,7 @@ func (group *RouterGroup) Any(relativePath string, handlers ...HandlerFunc) IRou
 
 // StaticFile registers a single route in order to serve a single file of the local filesystem.
 // router.StaticFile("favicon.ico", "./resources/favicon.ico")
+// 服务单个静态文件
 func (group *RouterGroup) StaticFile(relativePath, filepath string) IRoutes {
 	if strings.Contains(relativePath, ":") || strings.Contains(relativePath, "*") {
 		panic("URL parameters can not be used when serving a static file")
@@ -175,12 +179,14 @@ func (group *RouterGroup) StaticFile(relativePath, filepath string) IRoutes {
 // To use the operating system's file system implementation,
 // use :
 //     router.Static("/static", "/var/www")
+// 服务静态文件目录
 func (group *RouterGroup) Static(relativePath, root string) IRoutes {
 	return group.StaticFS(relativePath, Dir(root, false))
 }
 
 // StaticFS works just like `Static()` but a custom `http.FileSystem` can be used instead.
 // Gin by default user: gin.Dir()
+// 服务虚拟静态文件系统
 func (group *RouterGroup) StaticFS(relativePath string, fs http.FileSystem) IRoutes {
 	if strings.Contains(relativePath, ":") || strings.Contains(relativePath, "*") {
 		panic("URL parameters can not be used when serving a static folder")

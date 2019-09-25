@@ -52,6 +52,7 @@ type RoutesInfo []RouteInfo
 // Engine is the framework's instance, it contains the muxer, middleware and configuration settings.
 // Create an instance of Engine, by using New() or Default()
 //	Engine 是 gin 整个框架核心引擎. 所有组件, 都是由 Engine 驱动.
+//	因为引擎最重要的部分 —— 底层的 HTTP 服务器使用的是 Go 语言内置的 http server，Engine 的本质只是对内置的 HTTP 服务器的包装，让它使用起来更加便捷。
 type Engine struct {
 	// 关键: 路由组
 	RouterGroup
@@ -172,6 +173,7 @@ func Default() *Engine {
 	// 创建框架对象
 	engine := New()
 	// 配置默认中间件
+	//	Recovery 确保单个请求发生 panic 时记录异常堆栈日志，输出统一的错误响应。
 	engine.Use(Logger(), Recovery())
 	// 返回框架对象
 	return engine
@@ -236,12 +238,14 @@ func (engine *Engine) SetFuncMap(funcMap template.FuncMap) {
 }
 
 // NoRoute adds handlers for NoRoute. It return a 404 code by default.
+//	当 URL 请求对应的路径不能在路由树里找到时，就需要处理 404 NotFound 错误
 func (engine *Engine) NoRoute(handlers ...HandlerFunc) {
 	engine.noRoute = handlers
 	engine.rebuild404Handlers()
 }
 
 // NoMethod sets the handlers called when... TODO.
+//	当 URL 的请求路径可以在路由树里找到，但是 Method 不匹配，就需要处理 405 MethodNotAllowed 错误。
 func (engine *Engine) NoMethod(handlers ...HandlerFunc) {
 	engine.noMethod = handlers
 	engine.rebuild405Handlers()
@@ -266,6 +270,7 @@ func (engine *Engine) rebuild405Handlers() {
 	engine.allNoMethod = engine.combineHandlers(engine.noMethod)
 }
 
+//	添加 URL 请求处理器，它会将对应的路径和处理器挂接到相应的请求树中
 func (engine *Engine) addRoute(method, path string, handlers HandlersChain) {
 	assert1(path[0] == '/', "path must begin with '/'")
 	assert1(method != "", "HTTP method can not be empty")

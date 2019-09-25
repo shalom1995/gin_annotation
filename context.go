@@ -54,8 +54,12 @@ type Context struct {
 	//	在数量少的情况下用数组查找值，比用字典查找值要快
 	Params   Params
 	// 关键: 数组  里面包含方法集合
+	//	为什么路由节点需要挂接一个函数链呢？
+	//		这是因为 Gin 提供了插件，只有函数链的尾部是业务处理，前面的部分都是插件函数。
+	// 		在 Gin 中插件和业务处理函数形式是一样的，都是 func(*Context)。当我们定义路
+	// 		由时，Gin 会将插件函数和业务处理函数合并在一起形成一个链条结构。
 	handlers HandlersChain
-	// 目前在运行着第几个处理函数
+	// 目前在运行着第几个处理函数(位于函数链的位置)
 	index    int8
 	fullPath string
 
@@ -63,7 +67,7 @@ type Context struct {
 	engine *Engine
 
 	// Keys is a key/value pair exclusively for the context of each request.
-	// 各个中间件添加的key value
+	// 各个中间件添加的key value ，自定义上下文信息
 	Keys map[string]interface{}
 
 	// Errors is a list of errors attached to all the handlers/middlewares who used this context.
@@ -179,6 +183,8 @@ func (c *Context) IsAborted() bool {
 // Let's say you have an authorization middleware that validates that the current request is authorized.
 // If the authorization fails (ex: the password does not match), call Abort to ensure the remaining handlers
 // for this request are not called.
+//	Abort() 方法中断请求链的执行;它的原理是将 Context.index 调整到一个比较大的数字，这样 Next() 方法中的调用循环就会立即结束。
+//	需要注意的是: 执行 Abort() 方法之后，当前函数内后面的代码逻辑还会继续执行。
 func (c *Context) Abort() {
 	c.index = abortIndex
 }
@@ -359,6 +365,7 @@ func (c *Context) GetStringMapStringSlice(key string) (smss map[string][]string)
 //         // a GET request to /user/john
 //         id := c.Param("id") // id == "john"
 //     })
+// 获取 URL 匹配参数  /book/:id
 func (c *Context) Param(key string) string {
 	return c.Params.ByName(key)
 }
@@ -371,6 +378,7 @@ func (c *Context) Param(key string) string {
 // 	   c.Query("name") == "Manu"
 // 	   c.Query("value") == ""
 // 	   c.Query("wtf") == ""
+// 获取 URL 查询参数 /book?id=123&page=10
 func (c *Context) Query(key string) string {
 	value, _ := c.GetQuery(key)
 	return value
@@ -443,6 +451,7 @@ func (c *Context) GetQueryMap(key string) (map[string]string, bool) {
 
 // PostForm returns the specified key from a POST urlencoded form or multipart form
 // when it exists, otherwise it returns an empty string `("")`.
+// 获取 POST 表单参数
 func (c *Context) PostForm(key string) string {
 	value, _ := c.GetPostForm(key)
 	return value
@@ -531,6 +540,7 @@ func (c *Context) get(m map[string][]string, key string) (map[string]string, boo
 }
 
 // FormFile returns the first file for the provided form key.
+// 获取上传的文件对象
 func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
 	if c.Request.MultipartForm == nil {
 		if err := c.Request.ParseMultipartForm(c.engine.MaxMultipartMemory); err != nil {
@@ -815,6 +825,7 @@ func (c *Context) SetCookie(name, value string, maxAge int, path, domain string,
 // ErrNoCookie if not found. And return the named cookie is unescaped.
 // If multiple cookies match the given name, only one cookie will
 // be returned.
+// 获取请求Cookie
 func (c *Context) Cookie(name string) (string, error) {
 	cookie, err := c.Request.Cookie(name)
 	if err != nil {
